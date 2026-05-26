@@ -4,6 +4,8 @@ const cors = require('cors')
 require('dotenv').config()
 
 const authRoutes = require('./routes/authRoutes')
+const workspaceRoutes = require('./routes/workspaceRoutes')
+const documentRoutes = require('./routes/documentRoutes')
 
 const app = express()
 
@@ -13,6 +15,8 @@ app.use(express.json())
 
 // Routes
 app.use('/api/auth', authRoutes)
+app.use('/api/workspaces', workspaceRoutes)
+app.use('/api/documents', documentRoutes)
 
 // Test route
 app.get('/', (req, res) => {
