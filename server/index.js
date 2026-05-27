@@ -1,13 +1,26 @@
 const express = require('express')
 const mongoose = require('mongoose')
 const cors = require('cors')
+const http = require('http')
+const { Server } = require('socket.io')
 require('dotenv').config()
 
 const authRoutes = require('./routes/authRoutes')
 const workspaceRoutes = require('./routes/workspaceRoutes')
 const documentRoutes = require('./routes/documentRoutes')
+const Document = require('./models/Document')
+const WorkspaceMember = require('./models/WorkspaceMember')
+const jwt = require('jsonwebtoken')
 
 const app = express()
+const server = http.createServer(app)
+
+const io = new Server(server, {
+  cors: {
+    origin: 'http://localhost:5173',
+    methods: ['GET', 'POST']
+  }
+})
 
 // Middleware
 app.use(cors())
@@ -23,6 +36,99 @@ app.get('/', (req, res) => {
   res.json({ message: 'Server is running!' })
 })
 
+// Socket.io auth middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token
+  if (!token) {
+    return next(new Error('No token'))
+  }
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET)
+    socket.userId = payload._id
+    next()
+  } catch (err) {
+    next(new Error('Invalid token'))
+  }
+})
+
+// Socket.io events
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.userId)
+
+  // Join document room
+  socket.on('join-document', async ({ docId }) => {
+    try {
+      const doc = await Document.findById(docId)
+      if (!doc) return socket.emit('error', 'Document not found')
+
+      const member = await WorkspaceMember.findOne({
+        workspace: doc.workspace,
+        user: socket.userId
+      })
+      if (!member) return socket.emit('error', 'Access denied')
+
+      socket.join(docId)
+      console.log(`User ${socket.userId} joined document ${docId}`)
+
+      // Send current document state to the user
+      socket.emit('doc-state', {
+        content: doc.content,
+        version: doc.version
+      })
+
+      // Tell others this user joined
+      socket.to(docId).emit('user-joined', {
+        userId: socket.userId
+      })
+    } catch (err) {
+      socket.emit('error', 'Something went wrong')
+    }
+  })
+
+  // Receive and broadcast operation
+  socket.on('send-operation', async ({ docId, op, version }) => {
+    try {
+      if (!docId || !op) return
+
+      if (!socket.rooms.has(docId)) return
+
+      const doc = await Document.findById(docId)
+      if (!doc) return
+
+      // Save operation to database
+      doc.content = op
+      doc.version += 1
+      await doc.save()
+
+      // Broadcast to everyone else in the room
+      socket.to(docId).emit('receive-operation', {
+        op,
+        version: doc.version,
+        userId: socket.userId
+      })
+
+      // Confirm to sender
+      socket.emit('op-ack', { version: doc.version })
+
+    } catch (err) {
+      socket.emit('op-error', 'Failed to save operation')
+    }
+  })
+
+  // Leave document room
+  socket.on('leave-document', ({ docId }) => {
+    socket.leave(docId)
+    socket.to(docId).emit('user-left', {
+      userId: socket.userId
+    })
+  })
+
+  // Disconnect
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.userId)
+  })
+})
+
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected successfully'))
@@ -30,6 +136,6 @@ mongoose.connect(process.env.MONGO_URI)
 
 const PORT = process.env.PORT || 5000
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
 })

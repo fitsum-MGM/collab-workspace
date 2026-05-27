@@ -1,26 +1,32 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../utils/api'
 import useAuthStore from '../store/authStore'
+import useSocket from '../hooks/useSocket'
 
 const DocumentEditor = () => {
   const { id } = useParams()
   const navigate = useNavigate()
   const { user } = useAuthStore()
+  const socket = useSocket()
 
+  const [document, setDocument] = useState(null)
   const [content, setContent] = useState('')
   const [title, setTitle] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(true)
   const [loading, setLoading] = useState(true)
+  const [onlineUsers, setOnlineUsers] = useState([])
 
   const debounceTimer = useRef(null)
+  const isRemoteUpdate = useRef(false)
 
   // Load document when page opens
   useEffect(() => {
     const fetchDocument = async () => {
       try {
         const response = await api.get(`/documents/${id}`)
+        setDocument(response.data)
         setTitle(response.data.title || 'Untitled Document')
         setContent(response.data.content?.text || '')
       } catch (err) {
@@ -33,36 +39,66 @@ const DocumentEditor = () => {
     if (id) fetchDocument()
   }, [id])
 
-  // Auto save content after user stops typing
-  const saveContent = async (newContent) => {
-    try {
-      setSaving(true)
-      await api.put(`/documents/${id}`, {
-        content: { text: newContent }
-      })
-      setSaved(true)
-    } catch (err) {
-      console.log('Error saving content:', err)
-    } finally {
-      setSaving(false)
-    }
-  }
+  // Connect to socket room when document loads
+  useEffect(() => {
+    if (!socket || !id) return
 
-  const saveTitle = async (newTitle) => {
-    try {
-      setSaving(true)
-      await api.put(`/documents/${id}`, {
-        title: newTitle
-      })
-      setSaved(true)
-    } catch (err) {
-      console.log('Error saving title:', err)
-    } finally {
-      setSaving(false)
-    }
-  }
+    // Join the document room
+    socket.emit('join-document', { docId: id })
 
-  const handleContentChange = (newContent) => {
+    // Receive document state from server
+    socket.on('doc-state', ({ content }) => {
+      if (content?.text) {
+        isRemoteUpdate.current = true
+        setContent(content.text)
+      }
+    })
+
+    // Receive operations from other users
+    socket.on('receive-operation', ({ op }) => {
+      if (op?.text !== undefined) {
+        isRemoteUpdate.current = true
+        setContent(op.text)
+      }
+    })
+
+    // Other user joined
+    socket.on('user-joined', ({ userId }) => {
+      setOnlineUsers((prev) => [...new Set([...prev, userId])])
+    })
+
+    // Other user left
+    socket.on('user-left', ({ userId }) => {
+      setOnlineUsers((prev) => prev.filter((u) => u !== userId))
+    })
+
+    // Operation confirmed
+    socket.on('op-ack', () => {
+      setSaved(true)
+      setSaving(false)
+    })
+
+    // Operation error
+    socket.on('op-error', (msg) => {
+      console.log('Operation error:', msg)
+      setSaving(false)
+    })
+
+    return () => {
+      socket.emit('leave-document', { docId: id })
+      socket.off('doc-state')
+      socket.off('receive-operation')
+      socket.off('user-joined')
+      socket.off('user-left')
+      socket.off('op-ack')
+      socket.off('op-error')
+    }
+  }, [socket, id])
+
+  
+
+  // Handle content change with debounce
+  const handleContentChange = useCallback((newContent) => {
     setContent(newContent)
     setSaved(false)
 
@@ -70,12 +106,29 @@ const DocumentEditor = () => {
       clearTimeout(debounceTimer.current)
     }
 
-    debounceTimer.current = setTimeout(async () => {
-      await saveContent(newContent)
-    }, 1000)
-  }
+    debounceTimer.current = setTimeout(() => {
+      const op = { text: newContent }
 
-  const handleTitleChange = (newTitle) => {
+      // Send via socket
+      if (socket && socket.connected) {
+        setSaving(true)
+        socket.emit('send-operation', {
+          docId: id,
+          op,
+          version: document?.version || 0
+        })
+      }
+
+      // Also save via REST API as backup
+      api.put(`/documents/${id}`, {
+        content: { text: newContent }
+      }).catch(console.log)
+
+    }, 500)
+  }, [socket, id, document])
+
+  // Handle title change
+  const handleTitleChange = useCallback((newTitle) => {
     setTitle(newTitle)
     setSaved(false)
 
@@ -84,9 +137,17 @@ const DocumentEditor = () => {
     }
 
     debounceTimer.current = setTimeout(async () => {
-      await saveTitle(newTitle)
+      try {
+        setSaving(true)
+        await api.put(`/documents/${id}`, { title: newTitle })
+        setSaved(true)
+      } catch (err) {
+        console.log('Error saving title:', err)
+      } finally {
+        setSaving(false)
+      }
     }, 1000)
-  }
+  }, [id])
 
   // Clean up timer on unmount
   useEffect(() => {
@@ -110,7 +171,10 @@ const DocumentEditor = () => {
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <button onClick={() => navigate(-1)} style={styles.backBtn}>
+          <button
+            onClick={() => navigate(-1)}
+            style={styles.backBtn}
+          >
             ← Back
           </button>
           <input
@@ -122,21 +186,46 @@ const DocumentEditor = () => {
           />
         </div>
         <div style={styles.headerRight}>
-          <div style={styles.saveStatus}>
-            {saving ? 'Saving…' : saved ? 'Saved' : 'Unsaved changes'}
+          <span style={styles.saveStatus}>
+            {saving ? 'Saving...' : saved ? '✓ Saved' : 'Unsaved'}
+          </span>
+          <div style={styles.onlineUsers}>
+            <div style={styles.userBadge}>
+              {user?.name?.charAt(0).toUpperCase()}
+            </div>
+            {onlineUsers.map((userId, index) => (
+              <div
+                key={index}
+                style={{
+                  ...styles.userBadge,
+                  backgroundColor: '#10B981'
+                }}
+              >
+                U
+              </div>
+            ))}
           </div>
-          <div style={styles.userInfo}>{user?.name}</div>
         </div>
       </div>
 
-      {/* Editor area */}
-      <div style={styles.editorWrap}>
-        <textarea
-          value={content}
-          onChange={(e) => handleContentChange(e.target.value)}
-          style={styles.textarea}
-          placeholder="Start writing..."
-        />
+      {/* Online indicator */}
+      {onlineUsers.length > 0 && (
+        <div style={styles.onlineBanner}>
+          <span style={styles.greenDot}></span>
+          {onlineUsers.length} other user{onlineUsers.length > 1 ? 's' : ''} editing this document
+        </div>
+      )}
+
+      {/* Editor */}
+      <div style={styles.editorWrapper}>
+        <div style={styles.editorContainer}>
+          <textarea
+            value={content}
+            onChange={(e) => handleContentChange(e.target.value)}
+            style={styles.editor}
+            placeholder="Start writing your document here..."
+          />
+        </div>
       </div>
     </div>
   )
@@ -148,38 +237,49 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f5f5f5'
+    color: '#666'
   },
   container: {
     minHeight: '100vh',
-    backgroundColor: '#fff'
+    backgroundColor: '#f5f5f5',
+    display: 'flex',
+    flexDirection: 'column'
   },
   header: {
+    backgroundColor: '#fff',
+    padding: '0 2rem',
+    height: '60px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '0 1.5rem',
-    height: '64px',
-    borderBottom: '1px solid #eee',
-    backgroundColor: '#fafafa'
+    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+    position: 'sticky',
+    top: 0,
+    zIndex: 100
   },
   headerLeft: {
     display: 'flex',
     alignItems: 'center',
-    gap: '1rem'
+    gap: '1rem',
+    flex: 1
   },
   backBtn: {
-    padding: '8px 12px',
+    padding: '8px 16px',
     backgroundColor: 'transparent',
     border: '1px solid #ddd',
     borderRadius: '8px',
-    cursor: 'pointer'
+    fontSize: '14px',
+    color: '#666',
+    whiteSpace: 'nowrap'
   },
   titleInput: {
+    border: 'none',
     fontSize: '16px',
     fontWeight: '600',
-    border: 'none',
-    outline: 'none',
+    color: '#111',
+    flex: 1,
+    padding: '4px 8px',
+    borderRadius: '4px',
     backgroundColor: 'transparent'
   },
   headerRight: {
@@ -189,26 +289,63 @@ const styles = {
   },
   saveStatus: {
     fontSize: '13px',
-    color: '#666'
+    color: '#888'
   },
-  userInfo: {
+  onlineUsers: {
+    display: 'flex',
+    gap: '4px'
+  },
+  userBadge: {
+    width: '36px',
+    height: '36px',
+    backgroundColor: '#4F46E5',
+    color: '#fff',
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     fontSize: '14px',
-    color: '#333'
+    fontWeight: '600'
   },
-  editorWrap: {
-    padding: '1.5rem',
-    maxWidth: '900px',
-    margin: '0 auto'
+  onlineBanner: {
+    backgroundColor: '#F0FDF4',
+    padding: '8px 2rem',
+    fontSize: '13px',
+    color: '#166534',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px'
   },
-  textarea: {
+  greenDot: {
+    width: '8px',
+    height: '8px',
+    backgroundColor: '#22C55E',
+    borderRadius: '50%',
+    display: 'inline-block'
+  },
+  editorWrapper: {
+    flex: 1,
+    display: 'flex',
+    justifyContent: 'center',
+    padding: '2rem'
+  },
+  editorContainer: {
+    backgroundColor: '#fff',
+    borderRadius: '12px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
     width: '100%',
-    minHeight: '60vh',
+    maxWidth: '800px',
+    padding: '2rem'
+  },
+  editor: {
+    width: '100%',
+    minHeight: '600px',
+    border: 'none',
     fontSize: '16px',
-    lineHeight: '1.6',
-    padding: '1rem',
-    border: '1px solid #eee',
-    borderRadius: '8px',
-    resize: 'vertical'
+    lineHeight: '1.8',
+    color: '#333',
+    resize: 'none',
+    fontFamily: 'inherit'
   }
 }
 
