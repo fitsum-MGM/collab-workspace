@@ -95,7 +95,7 @@ const getDocument = async (req, res) => {
 // Update document title
 const updateDocument = async (req, res) => {
   try {
-    const { title } = req.body
+    const { title, content } = req.body
 
     const document = await Document.findById(req.params.id)
 
@@ -113,7 +113,16 @@ const updateDocument = async (req, res) => {
       return res.status(403).json({ message: 'Access denied' })
     }
 
-    document.title = title || document.title
+    // Update title if provided
+    if (title !== undefined) {
+      document.title = title
+    }
+
+    // Update content if provided
+    if (content !== undefined) {
+      document.content = content
+    }
+
     await document.save()
 
     res.status(200).json(document)
