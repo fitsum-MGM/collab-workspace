@@ -1,10 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { io } from 'socket.io-client'
 
 let socketInstance = null
 
 const useSocket = () => {
-  const socketRef = useRef(null)
+  const [socket, setSocket] = useState(socketInstance)
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -37,11 +37,13 @@ const useSocket = () => {
       })
     }
 
-    socketRef.current = socketInstance
+    queueMicrotask(() => {
+      setSocket(socketInstance)
+    })
 
   }, [])
 
-  return socketRef.current
+  return socket
 }
 
 export default useSocket

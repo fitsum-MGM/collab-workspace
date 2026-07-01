@@ -17,70 +17,67 @@ const DocumentEditor = () => {
   const [saved, setSaved] = useState(true)
   const [loading, setLoading] = useState(true)
   const [onlineUsers, setOnlineUsers] = useState([])
+  const [wordCount, setWordCount] = useState(0)
+  const [editingTitle, setEditingTitle] = useState(false)
 
   const debounceTimer = useRef(null)
-  const isRemoteUpdate = useRef(false)
 
-  // Load document when page opens
+  const countWords = (text) => {
+    return text.trim() === '' ? 0 : text.trim().split(/\s+/).length
+  }
+
   useEffect(() => {
-    const fetchDocument = async () => {
+    if (!id) return
+
+    let cancelled = false
+
+    const loadDocument = async () => {
       try {
         const response = await api.get(`/documents/${id}`)
+        if (cancelled) return
+
         setDocument(response.data)
         setTitle(response.data.title || 'Untitled Document')
-        setContent(response.data.content?.text || '')
+        const text = response.data.content?.text || ''
+        setContent(text)
+        setWordCount(countWords(text))
       } catch (err) {
         console.log('Error fetching document:', err)
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
-    if (id) fetchDocument()
+    void loadDocument()
+
+    return () => {
+      cancelled = true
+    }
   }, [id])
 
-  // Connect to socket room when document loads
   useEffect(() => {
     if (!socket || !id) return
 
-    // Join the document room
     socket.emit('join-document', { docId: id })
 
-    // Receive document state from server
     socket.on('doc-state', ({ content }) => {
-      if (content?.text) {
-        isRemoteUpdate.current = true
-        setContent(content.text)
-      }
+      if (content?.text) setContent(content.text)
     })
 
-    // Receive operations from other users
     socket.on('receive-operation', ({ op }) => {
-      if (op?.text !== undefined) {
-        isRemoteUpdate.current = true
-        setContent(op.text)
-      }
+      if (op?.text !== undefined) setContent(op.text)
     })
 
-    // Other user joined
     socket.on('user-joined', ({ userId }) => {
-      setOnlineUsers((prev) => [...new Set([...prev, userId])])
+      setOnlineUsers(prev => [...new Set([...prev, userId])])
     })
 
-    // Other user left
     socket.on('user-left', ({ userId }) => {
-      setOnlineUsers((prev) => prev.filter((u) => u !== userId))
+      setOnlineUsers(prev => prev.filter(u => u !== userId))
     })
 
-    // Operation confirmed
     socket.on('op-ack', () => {
       setSaved(true)
-      setSaving(false)
-    })
-
-    // Operation error
-    socket.on('op-error', (msg) => {
-      console.log('Operation error:', msg)
       setSaving(false)
     })
 
@@ -91,25 +88,18 @@ const DocumentEditor = () => {
       socket.off('user-joined')
       socket.off('user-left')
       socket.off('op-ack')
-      socket.off('op-error')
     }
   }, [socket, id])
 
-  
-
-  // Handle content change with debounce
   const handleContentChange = useCallback((newContent) => {
     setContent(newContent)
+    setWordCount(countWords(newContent))
     setSaved(false)
 
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current)
-    }
+    if (debounceTimer.current) clearTimeout(debounceTimer.current)
 
     debounceTimer.current = setTimeout(() => {
       const op = { text: newContent }
-
-      // Send via socket
       if (socket && socket.connected) {
         setSaving(true)
         socket.emit('send-operation', {
@@ -118,23 +108,17 @@ const DocumentEditor = () => {
           version: document?.version || 0
         })
       }
-
-      // Also save via REST API as backup
       api.put(`/documents/${id}`, {
         content: { text: newContent }
       }).catch(console.log)
-
     }, 500)
   }, [socket, id, document])
 
-  // Handle title change
   const handleTitleChange = useCallback((newTitle) => {
     setTitle(newTitle)
     setSaved(false)
 
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current)
-    }
+    if (debounceTimer.current) clearTimeout(debounceTimer.current)
 
     debounceTimer.current = setTimeout(async () => {
       try {
@@ -149,204 +133,334 @@ const DocumentEditor = () => {
     }, 1000)
   }, [id])
 
-  // Clean up timer on unmount
   useEffect(() => {
     return () => {
-      if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current)
-      }
+      if (debounceTimer.current) clearTimeout(debounceTimer.current)
     }
   }, [])
 
   if (loading) {
     return (
-      <div style={styles.loadingScreen}>
-        <p>Loading document...</p>
+      <div style={{
+        minHeight: '100vh',
+        background: '#0F0F0F',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: 'Inter, system-ui, sans-serif'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            border: '2px solid #2A2A2A',
+            borderTop: '2px solid #6366F1',
+            borderRadius: '50%',
+            margin: '0 auto 16px',
+            animation: 'spin 0.8s linear infinite'
+          }} />
+          <p style={{ color: '#444', fontSize: '14px' }}>Loading document...</p>
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     )
   }
 
   return (
-    <div style={styles.container}>
-      {/* Header */}
-      <div style={styles.header}>
-        <div style={styles.headerLeft}>
+    <div style={{
+      minHeight: '100vh',
+      background: '#0F0F0F',
+      fontFamily: 'Inter, system-ui, sans-serif',
+      color: '#fff',
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        ::placeholder { color: #333; }
+        textarea:focus { outline: none; }
+      `}</style>
+
+      {/* Top header */}
+      <div style={{
+        background: '#111111',
+        borderBottom: '1px solid #1E1E1E',
+        padding: '0 24px',
+        height: '56px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        position: 'sticky',
+        top: 0,
+        zIndex: 100
+      }}>
+        {/* Left side */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1 }}>
           <button
             onClick={() => navigate(-1)}
-            style={styles.backBtn}
+            style={{
+              background: 'transparent',
+              border: '1px solid #2A2A2A',
+              borderRadius: '8px',
+              padding: '6px 12px',
+              color: '#666',
+              fontSize: '13px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              whiteSpace: 'nowrap',
+              transition: 'all 0.15s'
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.borderColor = '#444'
+              e.currentTarget.style.color = '#fff'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.borderColor = '#2A2A2A'
+              e.currentTarget.style.color = '#666'
+            }}
           >
             ← Back
           </button>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => handleTitleChange(e.target.value)}
-            style={styles.titleInput}
-            placeholder="Untitled Document"
-          />
+
+          {/* Editable title */}
+          {editingTitle ? (
+            <input
+              type="text"
+              value={title}
+              onChange={e => handleTitleChange(e.target.value)}
+              onBlur={() => setEditingTitle(false)}
+              autoFocus
+              style={{
+                background: 'transparent',
+                border: 'none',
+                borderBottom: '1px solid #6366F1',
+                color: '#fff',
+                fontSize: '15px',
+                fontWeight: '600',
+                outline: 'none',
+                padding: '2px 4px',
+                minWidth: '200px'
+              }}
+            />
+          ) : (
+            <span
+              onClick={() => setEditingTitle(true)}
+              style={{
+                color: '#fff',
+                fontSize: '15px',
+                fontWeight: '600',
+                cursor: 'text',
+                padding: '2px 4px',
+                borderRadius: '4px',
+                transition: 'background 0.15s'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = '#1A1A1A'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              title="Click to edit title"
+            >
+              {title}
+              <span style={{ color: '#333', fontSize: '12px', marginLeft: '6px' }}>✏</span>
+            </span>
+          )}
         </div>
-        <div style={styles.headerRight}>
-          <span style={styles.saveStatus}>
-            {saving ? 'Saving...' : saved ? '✓ Saved' : 'Unsaved'}
-          </span>
-          <div style={styles.onlineUsers}>
-            <div style={styles.userBadge}>
+
+        {/* Right side */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {/* Save status */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {saving ? (
+              <>
+                <div style={{
+                  width: '12px',
+                  height: '12px',
+                  border: '1.5px solid #2A2A2A',
+                  borderTop: '1.5px solid #6366F1',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite'
+                }} />
+                <span style={{ color: '#555', fontSize: '12px' }}>Saving...</span>
+              </>
+            ) : saved ? (
+              <>
+                <span style={{ color: '#10B981', fontSize: '12px' }}>✓</span>
+                <span style={{ color: '#10B981', fontSize: '12px' }}>Saved</span>
+              </>
+            ) : (
+              <span style={{ color: '#555', fontSize: '12px' }}>Unsaved</span>
+            )}
+          </div>
+
+          {/* Online users */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '-4px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              background: 'linear-gradient(135deg, #6366F1, #8B5CF6)',
+              borderRadius: '50%',
+              border: '2px solid #111',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '12px',
+              fontWeight: '600',
+              title: user?.name
+            }}>
               {user?.name?.charAt(0).toUpperCase()}
             </div>
             {onlineUsers.map((userId, index) => (
               <div
                 key={index}
                 style={{
-                  ...styles.userBadge,
-                  backgroundColor: '#10B981'
+                  width: '32px',
+                  height: '32px',
+                  background: ['#10B981', '#F59E0B', '#EF4444'][index % 3],
+                  borderRadius: '50%',
+                  border: '2px solid #111',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  marginLeft: '-8px'
                 }}
               >
                 U
               </div>
             ))}
           </div>
+
+          {/* Share button */}
+          <button style={{
+            background: 'linear-gradient(135deg, #6366F1, #8B5CF6)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '8px',
+            padding: '7px 16px',
+            fontSize: '13px',
+            fontWeight: '600',
+            cursor: 'pointer'
+          }}>
+            Share
+          </button>
         </div>
       </div>
 
-      {/* Online indicator */}
+      {/* Online presence bar */}
       {onlineUsers.length > 0 && (
-        <div style={styles.onlineBanner}>
-          <span style={styles.greenDot}></span>
-          {onlineUsers.length} other user{onlineUsers.length > 1 ? 's' : ''} editing this document
+        <div style={{
+          background: 'rgba(16,185,129,0.08)',
+          borderBottom: '1px solid rgba(16,185,129,0.15)',
+          padding: '8px 24px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <div style={{
+            width: '8px',
+            height: '8px',
+            background: '#10B981',
+            borderRadius: '50%',
+            animation: 'pulse 2s infinite'
+          }} />
+          <span style={{ color: '#10B981', fontSize: '13px' }}>
+            {onlineUsers.length} other {onlineUsers.length === 1 ? 'person' : 'people'} editing this document
+          </span>
         </div>
       )}
 
-      {/* Editor */}
-      <div style={styles.editorWrapper}>
-        <div style={styles.editorContainer}>
-          <textarea
-            value={content}
-            onChange={(e) => handleContentChange(e.target.value)}
-            style={styles.editor}
-            placeholder="Start writing your document here..."
-          />
+      {/* Editor area */}
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        justifyContent: 'center',
+        padding: '40px 24px',
+        overflow: 'auto'
+      }}>
+        <div style={{
+          width: '100%',
+          maxWidth: '780px'
+        }}>
+          {/* Document card */}
+          <div style={{
+            background: '#111111',
+            border: '1px solid #1E1E1E',
+            borderRadius: '16px',
+            padding: '48px 56px',
+            minHeight: '600px',
+            position: 'relative'
+          }}>
+            {/* Document title inside editor */}
+            <input
+              type="text"
+              value={title}
+              onChange={e => handleTitleChange(e.target.value)}
+              placeholder="Untitled Document"
+              style={{
+                width: '100%',
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                fontSize: '28px',
+                fontWeight: '700',
+                outline: 'none',
+                marginBottom: '8px',
+                padding: 0,
+                boxSizing: 'border-box',
+                letterSpacing: '-0.02em'
+              }}
+            />
+
+            {/* Divider */}
+            <div style={{
+              height: '1px',
+              background: '#1E1E1E',
+              margin: '16px 0 24px'
+            }} />
+
+            {/* Text area */}
+            <textarea
+              value={content}
+              onChange={e => handleContentChange(e.target.value)}
+              placeholder="Start writing your document here..."
+              style={{
+                width: '100%',
+                minHeight: '480px',
+                background: 'transparent',
+                border: 'none',
+                color: '#C8C8C8',
+                fontSize: '16px',
+                lineHeight: '1.8',
+                resize: 'none',
+                fontFamily: 'Inter, system-ui, sans-serif',
+                padding: 0,
+                boxSizing: 'border-box'
+              }}
+            />
+
+            {/* Bottom bar */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginTop: '24px',
+              paddingTop: '16px',
+              borderTop: '1px solid #1A1A1A'
+            }}>
+              <span style={{ color: '#333', fontSize: '12px' }}>
+                {wordCount} {wordCount === 1 ? 'word' : 'words'}
+              </span>
+              <span style={{ color: '#333', fontSize: '12px' }}>
+                {content.length} characters
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   )
-}
-
-const styles = {
-  loadingScreen: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: '#666'
-  },
-  container: {
-    minHeight: '100vh',
-    backgroundColor: '#f5f5f5',
-    display: 'flex',
-    flexDirection: 'column'
-  },
-  header: {
-    backgroundColor: '#fff',
-    padding: '0 2rem',
-    height: '60px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-    position: 'sticky',
-    top: 0,
-    zIndex: 100
-  },
-  headerLeft: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1rem',
-    flex: 1
-  },
-  backBtn: {
-    padding: '8px 16px',
-    backgroundColor: 'transparent',
-    border: '1px solid #ddd',
-    borderRadius: '8px',
-    fontSize: '14px',
-    color: '#666',
-    whiteSpace: 'nowrap'
-  },
-  titleInput: {
-    border: 'none',
-    fontSize: '16px',
-    fontWeight: '600',
-    color: '#111',
-    flex: 1,
-    padding: '4px 8px',
-    borderRadius: '4px',
-    backgroundColor: 'transparent'
-  },
-  headerRight: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1rem'
-  },
-  saveStatus: {
-    fontSize: '13px',
-    color: '#888'
-  },
-  onlineUsers: {
-    display: 'flex',
-    gap: '4px'
-  },
-  userBadge: {
-    width: '36px',
-    height: '36px',
-    backgroundColor: '#4F46E5',
-    color: '#fff',
-    borderRadius: '50%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '14px',
-    fontWeight: '600'
-  },
-  onlineBanner: {
-    backgroundColor: '#F0FDF4',
-    padding: '8px 2rem',
-    fontSize: '13px',
-    color: '#166534',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px'
-  },
-  greenDot: {
-    width: '8px',
-    height: '8px',
-    backgroundColor: '#22C55E',
-    borderRadius: '50%',
-    display: 'inline-block'
-  },
-  editorWrapper: {
-    flex: 1,
-    display: 'flex',
-    justifyContent: 'center',
-    padding: '2rem'
-  },
-  editorContainer: {
-    backgroundColor: '#fff',
-    borderRadius: '12px',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-    width: '100%',
-    maxWidth: '800px',
-    padding: '2rem'
-  },
-  editor: {
-    width: '100%',
-    minHeight: '600px',
-    border: 'none',
-    fontSize: '16px',
-    lineHeight: '1.8',
-    color: '#333',
-    resize: 'none',
-    fontFamily: 'inherit'
-  }
 }
 
 export default DocumentEditor
