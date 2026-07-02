@@ -1,5 +1,6 @@
 const Workspace = require("../models/Workspace");
 const WorkspaceMember = require("../models/WorkspaceMember");
+const User = require("../models/User");
 
 // Create a new workspace
 const createWorkspace = async (req, res) => {
@@ -78,4 +79,60 @@ const getWorkspace = async (req, res) => {
   }
 };
 
-module.exports = { createWorkspace, getWorkspaces, getWorkspace };
+// Add a member to a workspace
+const addWorkspaceMember = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { email, role = "editor" } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const workspace = await Workspace.findById(id);
+
+    if (!workspace) {
+      return res.status(404).json({ message: "Workspace not found" });
+    }
+
+    const currentMember = await WorkspaceMember.findOne({
+      workspace: workspace._id,
+      user: req.user._id,
+      role: "owner",
+    });
+
+    if (!currentMember) {
+      return res.status(403).json({ message: "Only the workspace owner can share it" });
+    }
+
+    const targetUser = await User.findOne({ email: email.toLowerCase().trim() });
+
+    if (!targetUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const existingMember = await WorkspaceMember.findOne({
+      workspace: workspace._id,
+      user: targetUser._id,
+    });
+
+    if (existingMember) {
+      return res.status(400).json({ message: "User is already a member of this workspace" });
+    }
+
+    const member = await WorkspaceMember.create({
+      workspace: workspace._id,
+      user: targetUser._id,
+      role,
+    });
+
+    res.status(201).json({
+      message: "Workspace shared successfully",
+      member,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+module.exports = { createWorkspace, getWorkspaces, getWorkspace, addWorkspaceMember };

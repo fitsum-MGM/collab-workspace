@@ -19,6 +19,7 @@ const DocumentEditor = () => {
   const [onlineUsers, setOnlineUsers] = useState([])
   const [wordCount, setWordCount] = useState(0)
   const [editingTitle, setEditingTitle] = useState(false)
+  const [sharing, setSharing] = useState(false)
 
   const debounceTimer = useRef(null)
 
@@ -132,6 +133,26 @@ const DocumentEditor = () => {
       }
     }, 1000)
   }, [id])
+
+  const handleShare = async () => {
+    if (!document?.workspace) return
+
+    const email = window.prompt('Enter the email address to share this workspace with')
+    if (!email) return
+
+    try {
+      setSharing(true)
+      await api.post(`/workspaces/${document.workspace}/members`, {
+        email,
+        role: 'editor'
+      })
+      window.alert('Workspace shared successfully')
+    } catch (err) {
+      window.alert(err.response?.data?.message || 'Could not share workspace')
+    } finally {
+      setSharing(false)
+    }
+  }
 
   useEffect(() => {
     return () => {
@@ -333,17 +354,23 @@ const DocumentEditor = () => {
           </div>
 
           {/* Share button */}
-          <button style={{
-            background: 'linear-gradient(135deg, #6366F1, #8B5CF6)',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '8px',
-            padding: '7px 16px',
-            fontSize: '13px',
-            fontWeight: '600',
-            cursor: 'pointer'
-          }}>
-            Share
+          <button
+            type="button"
+            onClick={handleShare}
+            disabled={sharing}
+            style={{
+              background: 'linear-gradient(135deg, #6366F1, #8B5CF6)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '7px 16px',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: sharing ? 'not-allowed' : 'pointer',
+              opacity: sharing ? 0.75 : 1
+            }}
+          >
+            {sharing ? 'Sharing...' : 'Share'}
           </button>
         </div>
       </div>

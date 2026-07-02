@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import api from '../utils/api'
 import useAuthStore from '../store/authStore'
 
 const Dashboard = () => {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, logout } = useAuthStore()
   const [workspaces, setWorkspaces] = useState([])
   const [loading, setLoading] = useState(true)
@@ -35,6 +36,15 @@ const Dashboard = () => {
     }
   }, [])
 
+  useEffect(() => {
+    if (!location.hash) return
+
+    const target = document.querySelector(location.hash)
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [location.hash])
+
   const handleCreateWorkspace = async (e) => {
     e.preventDefault()
     setError('')
@@ -59,7 +69,7 @@ const Dashboard = () => {
   const colors = ['#6366F1', '#8B5CF6', '#EC4899', '#10B981', '#F59E0B', '#EF4444']
 
   return (
-    <div style={{
+      <div id="overview" style={{
       display: 'flex',
       minHeight: '100vh',
       background: '#0F0F0F',
@@ -108,13 +118,25 @@ const Dashboard = () => {
         {/* Nav items */}
         <nav style={{ flex: 1, padding: '12px 8px' }}>
           {[
-            { icon: '⊞', label: 'Dashboard', active: true },
-            { icon: '◫', label: 'Workspaces' },
-            { icon: '⏱', label: 'Recent' },
-            { icon: '⚙', label: 'Settings' }
+            { icon: '⊞', label: 'Dashboard', active: true, path: '#overview' },
+            { icon: '◫', label: 'Workspaces', path: '#workspaces' },
+            { icon: '⏱', label: 'Recent', path: '#recent' },
+            { icon: '⚙', label: 'Settings', path: '#settings' }
           ].map((item) => (
-            <div
+            <button
+              type="button"
               key={item.label}
+              onClick={() => {
+                if (item.path === '#overview') {
+                  window.scrollTo({ top: 0, behavior: 'smooth' })
+                  return
+                }
+
+                const target = document.querySelector(item.path)
+                if (target) {
+                  target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -139,7 +161,7 @@ const Dashboard = () => {
               {!sidebarCollapsed && (
                 <span style={{ fontSize: '13px', fontWeight: '500' }}>{item.label}</span>
               )}
-            </div>
+            </button>
           ))}
         </nav>
 
@@ -252,6 +274,91 @@ const Dashboard = () => {
         <div style={{ padding: '32px' }}>
 
           {/* Stats */}
+          <div id="recent" style={{
+            marginBottom: '32px'
+          }}>
+            <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#fff', margin: 0 }}>
+                Recent activity
+              </h2>
+              <span style={{ color: '#555', fontSize: '13px' }}>
+                {Math.min(workspaces.length, 3)} item{Math.min(workspaces.length, 3) !== 1 ? 's' : ''}
+              </span>
+            </div>
+            {workspaces.length === 0 ? (
+              <div style={{
+                background: '#111111',
+                border: '1px solid #1E1E1E',
+                borderRadius: '14px',
+                padding: '20px 24px',
+                color: '#555',
+                fontSize: '14px'
+              }}>
+                No recent workspaces yet.
+              </div>
+            ) : (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                gap: '12px'
+              }}>
+                {workspaces.slice(0, 3).map((workspace) => (
+                  <div key={workspace._id} style={{
+                    background: '#111111',
+                    border: '1px solid #1E1E1E',
+                    borderRadius: '14px',
+                    padding: '18px 20px',
+                    cursor: 'pointer'
+                  }} onClick={() => navigate(`/workspace/${workspace._id}`)}>
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '4px' }}>
+                      {workspace.name}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#666' }}>
+                      Last updated recently
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div id="settings" style={{
+            background: '#111111',
+            border: '1px solid #1E1E1E',
+            borderRadius: '14px',
+            padding: '24px',
+            marginBottom: '32px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', marginBottom: '12px' }}>
+              <div>
+                <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#fff', margin: 0 }}>
+                  Settings
+                </h2>
+                <p style={{ color: '#555', fontSize: '13px', margin: '4px 0 0' }}>
+                  Account and workspace preferences
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                style={{
+                  background: 'none',
+                  border: '1px solid #2A2A2A',
+                  color: '#666',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  padding: '10px 14px',
+                  borderRadius: '10px'
+                }}
+              >
+                Sign out
+              </button>
+            </div>
+            <div style={{ color: '#888', fontSize: '14px', lineHeight: 1.7 }}>
+              Signed in as <span style={{ color: '#fff' }}>{user?.name}</span>.
+            </div>
+          </div>
+
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(3, 1fr)',
@@ -297,7 +404,7 @@ const Dashboard = () => {
           </div>
 
           {/* Workspaces section */}
-          <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div id="workspaces" style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#fff', margin: 0 }}>
               Your Workspaces
             </h2>

@@ -1,4 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
 import { classNames, navItems } from './collabUiUtils'
 
 export const LogoMark = ({ compact = false }) => (
@@ -204,6 +205,8 @@ export const AuthShell = ({ title, eyebrow, children, footer }) => (
 )
 
 export const WorkspaceShell = ({ active = 'Dashboard', children, onLogout, user, sidebarActions, headerRight, onSidebarToggle, collapsed = false }) => {
+  const navigate = useNavigate()
+
   return (
     <div className="min-h-screen bg-[#0F0F0F] text-[#F5F5F5]" style={{ '--sidebar-width': collapsed ? '88px' : '240px' }}>
       <motion.aside
@@ -229,6 +232,7 @@ export const WorkspaceShell = ({ active = 'Dashboard', children, onLogout, user,
               <button
                 key={item.label}
                 type="button"
+                onClick={() => navigate(item.to)}
                 className={classNames(
                   'flex w-full items-center gap-3 rounded-[12px] px-4 py-3 text-sm font-medium transition duration-150',
                   isActive ? 'bg-indigo-500/15 text-indigo-300 ring-1 ring-inset ring-indigo-500/25' : 'text-[#888888] hover:bg-[#202020] hover:text-[#F5F5F5]',
@@ -287,6 +291,7 @@ export const WorkspaceShell = ({ active = 'Dashboard', children, onLogout, user,
               <button
                 key={item.label}
                 type="button"
+                onClick={() => navigate(item.to)}
                 className={classNames(
                   'flex flex-col items-center gap-1 rounded-[12px] px-2 py-2 text-[11px] font-medium transition duration-150',
                   isActive ? 'bg-indigo-500/15 text-indigo-300' : 'text-[#888888]',

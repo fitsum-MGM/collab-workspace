@@ -131,9 +131,9 @@ const Workspace = () => {
         <nav style={{ flex: 1, padding: '12px 8px' }}>
           {[
             { icon: '⊞', label: 'Dashboard', path: '/dashboard' },
-            { icon: '◫', label: 'Workspaces', active: true },
-            { icon: '⏱', label: 'Recent' },
-            { icon: '⚙', label: 'Settings' }
+            { icon: '◫', label: 'Workspaces', active: true, path: '/dashboard#workspaces' },
+            { icon: '⏱', label: 'Recent', path: '/dashboard#recent' },
+            { icon: '⚙', label: 'Settings', path: '/dashboard#settings' }
           ].map((item) => (
             <div
               key={item.label}
