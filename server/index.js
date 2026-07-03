@@ -15,15 +15,22 @@ const jwt = require('jsonwebtoken')
 const app = express()
 const server = http.createServer(app)
 
+// Allow all origins
+const corsOptions = {
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}
+
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:5173',
+    origin: '*',
     methods: ['GET', 'POST']
   }
 })
 
 // Middleware
-app.use(cors())
+app.use(cors(corsOptions))
 app.use(express.json())
 
 // Routes
@@ -39,9 +46,7 @@ app.get('/', (req, res) => {
 // Socket.io auth middleware
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token
-  if (!token) {
-    return next(new Error('No token'))
-  }
+  if (!token) return next(new Error('No token'))
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET)
     socket.userId = payload._id
@@ -55,7 +60,6 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   console.log('User connected:', socket.userId)
 
-  // Join document room
   socket.on('join-document', async ({ docId }) => {
     try {
       const doc = await Document.findById(docId)
@@ -68,62 +72,44 @@ io.on('connection', (socket) => {
       if (!member) return socket.emit('error', 'Access denied')
 
       socket.join(docId)
-      console.log(`User ${socket.userId} joined document ${docId}`)
-
-      // Send current document state to the user
       socket.emit('doc-state', {
         content: doc.content,
         version: doc.version
       })
-
-      // Tell others this user joined
-      socket.to(docId).emit('user-joined', {
-        userId: socket.userId
-      })
+      socket.to(docId).emit('user-joined', { userId: socket.userId })
     } catch (err) {
       socket.emit('error', 'Something went wrong')
     }
   })
 
-  // Receive and broadcast operation
   socket.on('send-operation', async ({ docId, op, version }) => {
     try {
       if (!docId || !op) return
-
       if (!socket.rooms.has(docId)) return
 
       const doc = await Document.findById(docId)
       if (!doc) return
 
-      // Save operation to database
       doc.content = op
       doc.version += 1
       await doc.save()
 
-      // Broadcast to everyone else in the room
       socket.to(docId).emit('receive-operation', {
         op,
         version: doc.version,
         userId: socket.userId
       })
-
-      // Confirm to sender
       socket.emit('op-ack', { version: doc.version })
-
     } catch (err) {
       socket.emit('op-error', 'Failed to save operation')
     }
   })
 
-  // Leave document room
   socket.on('leave-document', ({ docId }) => {
     socket.leave(docId)
-    socket.to(docId).emit('user-left', {
-      userId: socket.userId
-    })
+    socket.to(docId).emit('user-left', { userId: socket.userId })
   })
 
-  // Disconnect
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.userId)
   })
