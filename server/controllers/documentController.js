@@ -1,5 +1,5 @@
-const Document = require('../models/Document')
-const WorkspaceMember = require('../models/WorkspaceMember')
+const Document = require('../models/document')
+const WorkspaceMember = require('../models/workspaceMember')
 
 // Create a new document
 const createDocument = async (req, res) => {
