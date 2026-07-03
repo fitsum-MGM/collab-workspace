@@ -4,7 +4,6 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
 })
 
-// Automatically add token to every request
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) {
@@ -13,7 +12,6 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Handle expired token
 api.interceptors.response.use(
   (response) => response,
   (error) => {
