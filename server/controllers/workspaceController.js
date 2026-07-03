@@ -1,6 +1,6 @@
 const Workspace = require('../models/Workspace')
 const WorkspaceMember = require('../models/WorkspaceMember')
-const User = require("../models/user")
+const User = require('../models/User')
 
 // Create a new workspace
 const createWorkspace = async (req, res) => {
