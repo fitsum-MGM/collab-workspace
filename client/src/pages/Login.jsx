@@ -41,7 +41,6 @@ const Login = () => {
       position: 'relative',
       overflow: 'hidden'
     }}>
-      {/* Background glow */}
       <div style={{
         position: 'absolute',
         width: '600px',
@@ -64,7 +63,6 @@ const Login = () => {
         position: 'relative',
         zIndex: 1
       }}>
-        {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '32px' }}>
           <div style={{
             width: '36px',
@@ -121,8 +119,7 @@ const Login = () => {
                 color: '#fff',
                 fontSize: '14px',
                 outline: 'none',
-                boxSizing: 'border-box',
-                transition: 'border-color 0.2s'
+                boxSizing: 'border-box'
               }}
               onFocus={e => e.target.style.borderColor = '#6366F1'}
               onBlur={e => e.target.style.borderColor = '#2A2A2A'}
@@ -149,8 +146,7 @@ const Login = () => {
                 color: '#fff',
                 fontSize: '14px',
                 outline: 'none',
-                boxSizing: 'border-box',
-                transition: 'border-color 0.2s'
+                boxSizing: 'border-box'
               }}
               onFocus={e => e.target.style.borderColor = '#6366F1'}
               onBlur={e => e.target.style.borderColor = '#2A2A2A'}
@@ -170,11 +166,8 @@ const Login = () => {
               fontSize: '14px',
               fontWeight: '600',
               cursor: loading ? 'not-allowed' : 'pointer',
-              transition: 'all 0.2s',
-              letterSpacing: '0.01em'
+              transition: 'all 0.2s'
             }}
-            onMouseEnter={e => { if (!loading) e.target.style.opacity = '0.9' }}
-            onMouseLeave={e => e.target.style.opacity = '1'}
           >
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
